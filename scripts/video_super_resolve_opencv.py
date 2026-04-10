@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Video Super-Resolution Pipeline using BasicVSR++
-完全基于 OpenCV 实现视频拆帧和合帧，无需 ffmpeg
-不再直接导入 mmedit，避免 DLL 错误
+Totally based on OpenCV implement video frame splitting and merging without ffmpeg
+No longer directly import mmedit to avoid DLL errors
 """
 
 import argparse
@@ -22,11 +22,11 @@ torch.backends.cudnn.benchmark = False
 
 def extract_frames_opencv(video_path, output_dir, target_fps=None):
     """
-    使用 OpenCV 从视频中提取帧，保存为 PNG 图片
+    Extract frames from video using OpenCV and save them as PNG images.
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise RuntimeError(f"无法打开视频: {video_path}")
+        raise RuntimeError(f"Cannot open video: {video_path}")
     
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames_original = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -42,7 +42,7 @@ def extract_frames_opencv(video_path, output_dir, target_fps=None):
     
     frame_idx = 0
     saved_idx = 0
-    pbar = tqdm(total=total_frames_original, desc="提取视频帧")
+    pbar = tqdm(total=total_frames_original, desc="Extracting video frames")
     
     while True:
         ret, frame = cap.read()
@@ -57,21 +57,22 @@ def extract_frames_opencv(video_path, output_dir, target_fps=None):
     
     cap.release()
     pbar.close()
-    print(f"提取完成: 原视频 {total_frames_original} 帧 -> {saved_idx} 帧 (采样间隔 {sample_interval})")
+    print(f"Extraction completed: original {total_frames_original} frames -> {saved_idx} frames (sampling interval {sample_interval})")
     return original_fps, saved_idx
 
 def rename_output_files(output_dir):
-    """合并滑动窗口输出的帧，重新编号"""
+    """Rename output frames from sliding windows to continuous sequence."""
     output_dir = Path(output_dir)
     frame_files = sorted(output_dir.glob("*.png"), key=lambda x: int(x.stem))
     for new_idx, file_path in enumerate(frame_files):
         new_name = f"{new_idx:08d}.png"
         file_path.rename(output_dir / new_name)
-    print(f"输出文件已重新编号，共 {len(frame_files)} 帧")
+    print(f"Output files renumbered, total {len(frame_files)} frames")
 
 def run_super_resolution(config_path, checkpoint_path, input_dir, output_dir, device_id=0, window_size=30):
     """
-    滑动窗口方式调用 BasicVSR++ 官方推理脚本，每个窗口输出到独立子目录，最后合并
+    Call BasicVSR++ official inference script in sliding window manner.
+    Each window outputs to a separate subdirectory, finally merge all.
     """
 
     input_dir = Path(input_dir)
@@ -81,13 +82,13 @@ def run_super_resolution(config_path, checkpoint_path, input_dir, output_dir, de
     frame_paths = sorted(input_dir.glob("*.png"))
     total_frames = len(frame_paths)
     if total_frames == 0:
-        print("错误：输入目录中没有找到 PNG 图片")
+        print("Error: No PNG images found in input directory")
         return
 
     num_windows = (total_frames + window_size - 1) // window_size
-    print(f"总帧数: {total_frames}，窗口大小: {window_size}，共 {num_windows} 批")
+    print(f"Total frames: {total_frames}, window size: {window_size}, total windows: {num_windows}")
 
-    # 创建临时目录存放所有窗口的输出
+    # Create temporary directory to store outputs of all windows
     temp_output_root = output_dir / "_temp_windows"
     if temp_output_root.exists():
         shutil.rmtree(temp_output_root)
@@ -95,22 +96,22 @@ def run_super_resolution(config_path, checkpoint_path, input_dir, output_dir, de
 
     demo_script = Path(__file__).parent.parent / "demo" / "restoration_video_demo.py"
     if not demo_script.exists():
-        raise RuntimeError(f"找不到推理脚本: {demo_script}")
+        raise RuntimeError(f"Cannot find inference script: {demo_script}")
 
-    # 进度条
-    pbar = tqdm(total=total_frames, desc="超分进度", unit="帧", ncols=80)
+    # Progress bar
+    pbar = tqdm(total=total_frames, desc="Super-resolution progress", unit="frame", ncols=80)
 
     for start_idx in range(0, total_frames, window_size):
         end_idx = min(start_idx + window_size, total_frames)
         current_window_path = input_dir / f"window_{start_idx}_{end_idx}"
         current_window_path.mkdir(exist_ok=True)
 
-        # 复制当前窗口的帧
+        # Copy frames of current window
         for i, frame_path in enumerate(frame_paths[start_idx:end_idx]):
             target_path = current_window_path / f"{i:08d}.png"
             shutil.copy2(frame_path, target_path)
 
-        # 为该窗口创建独立的输出子目录
+        # Create independent output subdirectory for this window
         window_out_dir = temp_output_root / f"out_{start_idx:06d}_{end_idx:06d}"
         window_out_dir.mkdir(exist_ok=True)
 
@@ -122,52 +123,52 @@ def run_super_resolution(config_path, checkpoint_path, input_dir, output_dir, de
             "--max-seq-len", str(window_size)
         ]
 
-        # 静默运行子进程，避免输出干扰进度条
+        # Run subprocess silently to avoid cluttering progress bar
         try:
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError as e:
-            print(f"\n窗口 {start_idx//window_size + 1} 处理失败，错误码: {e.returncode}")
+            print(f"\nWindow {start_idx//window_size + 1} processing failed, error code: {e.returncode}")
             raise
 
-        # 清理临时输入目录
+        # Clean up temporary input directory
         shutil.rmtree(current_window_path)
         torch.cuda.empty_cache()
 
-        # 更新进度条
+        # Update progress bar
         pbar.update(end_idx - start_idx)
-        pbar.set_postfix_str(f"窗口 {start_idx//window_size + 1}/{num_windows}")
+        pbar.set_postfix_str(f"Window {start_idx//window_size + 1}/{num_windows}")
 
     pbar.close()
 
-    # 合并所有窗口的输出文件并重新编号
-    print("\n正在合并输出帧...")
+    # Merge all window output files and renumber
+    print("\nMerging output frames...")
     all_frames = []
-    # 按窗口序号排序，确保顺序正确
+    # Sort by window index to ensure correct order
     for win_dir in sorted(temp_output_root.glob("out_*")):
         frames = sorted(win_dir.glob("*.png"), key=lambda x: int(x.stem))
         all_frames.extend(frames)
 
     if len(all_frames) != total_frames:
-        print(f"警告：期望 {total_frames} 帧，实际得到 {len(all_frames)} 帧")
+        print(f"Warning: expected {total_frames} frames, got {len(all_frames)} frames")
 
-    # 复制到最终输出目录并重命名
+    # Copy to final output directory and rename
     for new_idx, src_path in enumerate(all_frames):
         dst_path = output_dir / f"{new_idx:08d}.png"
         shutil.copy2(src_path, dst_path)
 
-    # 删除临时目录
+    # Delete temporary directory
     shutil.rmtree(temp_output_root)
-    print(f"合并完成，共 {len(all_frames)} 帧，已保存到 {output_dir}")
+    print(f"Merging completed, total {len(all_frames)} frames saved to {output_dir}")
 
 def merge_frames_to_video_opencv(frame_dir, output_video_path, fps):
     """
-    使用 OpenCV 将帧序列合成为视频
+    Use OpenCV to merge frame sequence into a video.
     """
     frame_dir = Path(frame_dir)
     output_video_path = Path(output_video_path)
     output_video_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # 获取第一帧的尺寸
+    # Get dimensions from first frame
     first_frame_path = list(frame_dir.glob("*.png"))[0]
     frame = cv2.imread(str(first_frame_path))
     h, w = frame.shape[:2]
@@ -176,33 +177,33 @@ def merge_frames_to_video_opencv(frame_dir, output_video_path, fps):
     out = cv2.VideoWriter(str(output_video_path), fourcc, fps, (w, h))
     
     frame_files = sorted(frame_dir.glob("*.png"), key=lambda x: int(x.stem))
-    for fpath in tqdm(frame_files, desc="合成视频"):
+    for fpath in tqdm(frame_files, desc="Merging video"):
         img = cv2.imread(str(fpath))
         out.write(img)
     out.release()
-    print(f"视频已保存: {output_video_path}")
+    print(f"Video saved: {output_video_path}")
 
 def cleanup_dirs(dirs):
     for d in dirs:
         if d and Path(d).exists():
             shutil.rmtree(d)
-            print(f"已删除临时目录: {d}")
+            print(f"Removed temporary directory: {d}")
 
 def main():
-    parser = argparse.ArgumentParser(description="视频超分流水线 (纯 OpenCV 版，无需 ffmpeg)")
-    parser.add_argument("input_video", type=str, help="输入视频路径")
-    parser.add_argument("output_video", type=str, help="输出视频路径")
+    parser = argparse.ArgumentParser(description="Video Super-Resolution Pipeline (pure OpenCV, no ffmpeg required)")
+    parser.add_argument("input_video", type=str, help="Path to input video")
+    parser.add_argument("output_video", type=str, help="Path to output video")
     parser.add_argument("--config", type=str, default="configs/basicvsr_plusplus_reds4.py",
-                        help="模型配置文件路径")
+                        help="Model config file path")
     parser.add_argument("--checkpoint", type=str, default="chkpts/basicvsr_plusplus_reds4.pth",
-                        help="模型权重文件路径")
+                        help="Model checkpoint file path")
     parser.add_argument("--target_fps", type=int, default=None,
-                        help="输出视频帧率（若不指定则使用原视频帧率）")
-    parser.add_argument("--device", type=int, default=0, help="GPU 设备 ID")
+                        help="Target output video FPS (if not specified, use original FPS)")
+    parser.add_argument("--device", type=int, default=0, help="GPU device ID")
     parser.add_argument("--temp_dir", type=str, default="./temp_sr",
-                        help="临时目录，存放中间帧")
+                        help="Temporary directory for intermediate frames")
     parser.add_argument("--keep_temp", action="store_true",
-                        help="保留临时目录（默认处理完后删除）")
+                        help="Keep temporary directory (deleted by default)")
     args = parser.parse_args()
     
     base_dir = Path(__file__).parent.parent
@@ -215,13 +216,13 @@ def main():
     output_frames_dir = temp_root / "output_frames"
     
     if not input_video.exists():
-        print(f"错误: 输入视频不存在 {input_video}")
+        print(f"Error: Input video does not exist: {input_video}")
         sys.exit(1)
     if not config_path.exists():
-        print(f"错误: 配置文件不存在 {config_path}")
+        print(f"Error: Config file does not exist: {config_path}")
         sys.exit(1)
     if not checkpoint_path.exists():
-        print(f"错误: 模型权重不存在 {checkpoint_path}")
+        print(f"Error: Checkpoint file does not exist: {checkpoint_path}")
         sys.exit(1)
     
     try:
@@ -236,7 +237,7 @@ def main():
         
         merge_frames_to_video_opencv(output_frames_dir, output_video, fps)
         
-        print(f"\n✅ 成功！超分视频已保存至: {output_video}")
+        print(f"\n✅ Success! Super-resolved video saved to: {output_video}")
     
     finally:
         if not args.keep_temp:
@@ -244,7 +245,7 @@ def main():
             if temp_root.exists() and not any(temp_root.iterdir()):
                 temp_root.rmdir()
         else:
-            print(f"临时目录保留在: {temp_root}")
+            print(f"Temporary directory kept at: {temp_root}")
 
 if __name__ == "__main__":
     main()
