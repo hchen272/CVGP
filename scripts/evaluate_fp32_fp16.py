@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Unified evaluation for FP32 vs FP16 video super-resolution.
+Includes peak GPU memory measurement.
 """
 # to run: python scripts/evaluate_fp32_fp16.py data/lq.mp4 --gt_video data/gt.mp4 --output_dir ./results/eval --keep_temp
 
@@ -17,10 +18,11 @@ import numpy as np
 from tqdm import tqdm
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
-# Add inference_optimize to path so that utils.model_loader can be imported
+# Add inference_optimize to path so that utils.model_loader and utils.inference can be imported
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / 'inference_optimize'))
 from utils.model_loader import load_model
+from utils.inference import profile_model_memory
 
 # ----------------------------------------------------------------------
 # Frame extraction and video merging (same as original script)
@@ -68,11 +70,11 @@ def merge_frames_to_video(frame_dir, video_path, fps):
 # Super-resolution processing for a given precision
 # ----------------------------------------------------------------------
 def process_video_with_precision(input_video, output_video, config_path, checkpoint_path,
-                                 precision='fp32', window_size=5, device='cuda:0',
+                                 precision='fp32', window_size=8, device='cuda:0',
                                  temp_dir=None):
     """
     Run the entire pipeline: extract frames -> super-resolve -> merge.
-    Returns a dict with timing and optional memory info.
+    Returns a dict with timing and memory info (including peak memory).
     """
     temp_root = Path(temp_dir) if temp_dir else Path("./temp_" + precision)
     input_frames_dir = temp_root / "input_frames"
@@ -104,6 +106,8 @@ def process_video_with_precision(input_video, output_video, config_path, checkpo
     temp_out_root = output_frames_dir / "_temp_windows"
     temp_out_root.mkdir(exist_ok=True)
 
+    # Measure peak memory during first window (representative)
+    peak_memory_mb = 0
     start_infer = time.time()
     pbar = tqdm(total=total_frames, desc=f"{precision.upper()} inference", unit="frame")
     for start_idx in range(0, total_frames, window_size):
@@ -118,10 +122,17 @@ def process_video_with_precision(input_video, output_video, config_path, checkpo
         if precision == 'fp16':
             input_tensor = input_tensor.half()
 
-        # Forward pass
-        with torch.no_grad():
-            output_dict = model.forward_test(input_tensor)
-            output_tensor = output_dict['output']  # Extract the output tensor
+        # Measure peak memory for the first window (if not already done)
+        if start_idx == 0:
+            torch.cuda.reset_peak_memory_stats(device)
+            with torch.no_grad():
+                output_dict = model.forward_test(input_tensor)
+                output_tensor = output_dict['output']
+            peak_memory_mb = torch.cuda.max_memory_allocated(device) / 1024**2
+        else:
+            with torch.no_grad():
+                output_dict = model.forward_test(input_tensor)
+                output_tensor = output_dict['output']
 
         # Save output frames
         window_out_dir = temp_out_root / f"out_{start_idx:06d}_{end_idx:06d}"
@@ -164,7 +175,8 @@ def process_video_with_precision(input_video, output_video, config_path, checkpo
         'merge_time_s': merge_time,
         'total_time_s': total_time,
         'fps_video': total_frames / total_time,
-        'fps_inference': total_frames / infer_time if infer_time > 0 else 0
+        'fps_inference': total_frames / infer_time if infer_time > 0 else 0,
+        'peak_memory_mb': peak_memory_mb,   # <-- 新增峰值显存
     }
 
 # ----------------------------------------------------------------------
@@ -273,6 +285,10 @@ def main():
     time_base = results['fp32']['inference_time_s']
     time_opt = results['fp16']['inference_time_s']
     print(f"{'Inference time (s)':<25} {time_base:<15.2f} {time_opt:<15.2f} {time_base/time_opt:<15.2f}x")
+    # 新增峰值显存打印
+    mem_base = results['fp32']['peak_memory_mb']
+    mem_opt = results['fp16']['peak_memory_mb']
+    print(f"{'Peak GPU Memory (MB)':<25} {mem_base:<15.2f} {mem_opt:<15.2f} {mem_base/mem_opt:<15.2f}x reduction")
     if 'quality' in results['fp32']:
         psnr_base = results['fp32']['quality']['psnr']
         psnr_opt = results['fp16']['quality']['psnr']
