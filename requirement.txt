@@ -1,0 +1,9 @@
+pip install opencv-python
+pip install openmim
+pip install basicsr
+pip install facexlib
+pip install gfpgan
+pip install lpips
+pip install scikit-image
+pip install matplotlib
+pip install tqdm
