@@ -44,6 +44,8 @@ dataset here
 │   ├── weighted_fusion.py              # Global weighted fusion of BasicVSR++ and UAH
 │   ├── run_multiple_thresholds.py      # Sweep confidence thresholds (0.2–0.5)
 │   ├── evaluate_thresholds.py          # Evaluate all thresholds and generate plots
+|   ├── batch_weighted_fusion.py        # Experiment on weighted fusion
+|   ├── evaluate_weighted_fusion.py     # Evaluate the results of weighted fusion
 │   └── results/                        # Outputs (frames, videos, evaluation)
 ├── ESRGAN/                             # Real-ESRGAN executable (download from official release)
 │   ├── realesrgan-ncnn-vulkan.exe
