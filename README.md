@@ -223,6 +223,7 @@ UAH = Uncertainty‑Aware Hybrid (θ=0.3), UGF = Uncertainty‑Guided Fusion (so
 | Weighted Fusion (α=0.6) | 28.91 | 0.8690 | 0.1357 | 0.2195 | 2.95 |
 | UGF | 26.11 | 0.7865 | 0.2144 | – | – |
 | ESRGAN (4x) | 24.22 | 0.6572 | 0.3772 | 0.2135 | 97.12 |
+
 **Best LPIPS** is achieved by weighted fusion (α=0.6), demonstrating that a moderate blend of BasicVSR++ and generative enhancement improves perceptual quality while preserving high fidelity.
 
 ## Acceleration Experiments
