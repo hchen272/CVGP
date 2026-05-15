@@ -205,8 +205,9 @@ For evaluation of different confidence thresholds (UAH variants), run:
 
 ```bash
 python direction_c/evaluate_thresholds.py
-This will produce per‑threshold metrics and plots in direction_c/results/evaluation_thresholds/.
 ```
+This will produce per‑threshold metrics and plots in ```direction_c/results/evaluation_thresholds/```.
+
 
 ## Results Summary
 The table below reports average metrics over four REDS sequences (000, 011, 015, 020).
